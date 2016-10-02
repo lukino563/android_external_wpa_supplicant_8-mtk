@@ -3018,12 +3018,31 @@ static void wpas_invitation_received(void *ctx, const u8 *sa, const u8 *bssid,
 			   MAC2STR(sa), op_freq, wpa_ssid_txt(ssid, ssid_len));
 		if (s) {
 			int go = s->mode == WPAS_MODE_P2P_GO;
+			if (go) {
+				wpa_msg_global(wpa_s, MSG_INFO,
+					       P2P_EVENT_INVITATION_ACCEPTED
+					       "sa=" MACSTR
+					       " persistent=%d freq=%d",
+					       MAC2STR(sa), s->id, op_freq);
+			} else {
+				wpa_msg_global(wpa_s, MSG_INFO,
+					       P2P_EVENT_INVITATION_ACCEPTED
+					       "sa=" MACSTR
+					       " persistent=%d",
+					       MAC2STR(sa), s->id);
+			}
 			wpas_p2p_group_add_persistent(
 				wpa_s, s, go, 0, op_freq, 0, 0, 0, 0, NULL,
 				go ? P2P_MAX_INITIAL_CONN_WAIT_GO_REINVOKE : 0,
 				1);
 		} else if (bssid) {
 			wpa_s->user_initiated_pd = 0;
+			wpa_msg_global(wpa_s, MSG_INFO,
+				       P2P_EVENT_INVITATION_ACCEPTED
+				       "sa=" MACSTR " go_dev_addr=" MACSTR
+				       " bssid=" MACSTR " unknown-network",
+				       MAC2STR(sa), MAC2STR(go_dev_addr),
+				       MAC2STR(bssid));
 			wpas_p2p_join(wpa_s, bssid, go_dev_addr,
 				      wpa_s->p2p_wps_method, 0, op_freq,
 				      ssid, ssid_len);
@@ -5373,6 +5392,9 @@ int wpas_p2p_connect(struct wpa_supplicant *wpa_s, const u8 *peer_addr,
 			wpa_s->p2p_pin[sizeof(wpa_s->p2p_pin) - 1] = '\0';
 		wpa_printf(MSG_DEBUG, "P2P: Randomly generated PIN: %s",
 			   wpa_s->p2p_pin);
+	} else if (wps_method == WPS_P2PS) {
+		/* Force the P2Ps default PIN to be used */
+		os_strlcpy(wpa_s->p2p_pin, "12345670", sizeof(wpa_s->p2p_pin));
 	} else
 		wpa_s->p2p_pin[0] = '\0';
 
@@ -6621,6 +6643,12 @@ int wpas_p2p_listen(struct wpa_supplicant *wpa_s, unsigned int timeout)
 	if (wpa_s->global->p2p_disabled || wpa_s->global->p2p == NULL)
 		return -1;
 
+	if (wpa_s->p2p_lo_started) {
+		wpa_printf(MSG_DEBUG,
+			"P2P: Cannot start P2P listen, it is offloaded");
+		return -1;
+	}
+
 	wpa_supplicant_cancel_sched_scan(wpa_s);
 	wpas_p2p_clear_pending_action_tx(wpa_s);
 
@@ -6694,7 +6722,7 @@ int wpas_p2p_probe_req_rx(struct wpa_supplicant *wpa_s, const u8 *addr,
 		return 0;
 
 	switch (p2p_probe_req_rx(wpa_s->global->p2p, addr, dst, bssid,
-				 ie, ie_len, rx_freq)) {
+				 ie, ie_len, rx_freq, wpa_s->p2p_lo_started)) {
 	case P2P_PREQ_NOT_P2P:
 		wpas_notify_preq(wpa_s, addr, dst, bssid, ie, ie_len,
 				 ssi_signal);
@@ -9196,4 +9224,87 @@ void wpas_p2p_ap_deinit(struct wpa_supplicant *wpa_s)
 	if (wpa_s->ap_iface->bss)
 		wpa_s->ap_iface->bss[0]->p2p_group = NULL;
 	wpas_p2p_group_deinit(wpa_s);
+}
+
+
+int wpas_p2p_lo_start(struct wpa_supplicant *wpa_s, unsigned int freq,
+		      unsigned int period, unsigned int interval,
+		      unsigned int count)
+{
+	struct p2p_data *p2p = wpa_s->global->p2p;
+	u8 *device_types;
+	size_t dev_types_len;
+	struct wpabuf *buf;
+	int ret;
+
+	if (wpa_s->p2p_lo_started) {
+		wpa_dbg(wpa_s, MSG_DEBUG,
+			"P2P Listen offload is already started");
+		return 0;
+	}
+
+	if (wpa_s->global->p2p == NULL ||
+	    !(wpa_s->drv_flags & WPA_DRIVER_FLAGS_P2P_LISTEN_OFFLOAD)) {
+		wpa_printf(MSG_DEBUG, "P2P: Listen offload not supported");
+		return -1;
+	}
+
+	if (!p2p_supported_freq(wpa_s->global->p2p, freq)) {
+		wpa_printf(MSG_ERROR, "P2P: Input channel not supported: %u",
+			   freq);
+		return -1;
+	}
+
+	/* Get device type */
+	dev_types_len = (wpa_s->conf->num_sec_device_types + 1) *
+		WPS_DEV_TYPE_LEN;
+	device_types = os_malloc(dev_types_len);
+	if (!device_types)
+		return -1;
+	os_memcpy(device_types, wpa_s->conf->device_type, WPS_DEV_TYPE_LEN);
+	os_memcpy(&device_types[WPS_DEV_TYPE_LEN], wpa_s->conf->sec_device_type,
+		  wpa_s->conf->num_sec_device_types * WPS_DEV_TYPE_LEN);
+
+	/* Get Probe Response IE(s) */
+	buf = p2p_build_probe_resp_template(p2p, freq);
+	if (!buf) {
+		os_free(device_types);
+		return -1;
+	}
+
+	ret = wpa_drv_p2p_lo_start(wpa_s, freq, period, interval, count,
+				   device_types, dev_types_len,
+				   wpabuf_mhead_u8(buf), wpabuf_len(buf));
+	if (ret < 0)
+		wpa_dbg(wpa_s, MSG_DEBUG,
+			"P2P: Failed to start P2P listen offload");
+
+	os_free(device_types);
+	wpabuf_free(buf);
+
+	if (ret == 0) {
+		wpa_s->p2p_lo_started = 1;
+
+		/* Stop current P2P listen if any */
+		wpas_stop_listen(wpa_s);
+	}
+
+	return ret;
+}
+
+
+int wpas_p2p_lo_stop(struct wpa_supplicant *wpa_s)
+{
+	int ret;
+
+	if (!wpa_s->p2p_lo_started)
+		return 0;
+
+	ret = wpa_drv_p2p_lo_stop(wpa_s);
+	if (ret < 0)
+		wpa_dbg(wpa_s, MSG_DEBUG,
+			"P2P: Failed to stop P2P listen offload");
+
+	wpa_s->p2p_lo_started = 0;
+	return ret;
 }

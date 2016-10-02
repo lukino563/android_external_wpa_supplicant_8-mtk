@@ -438,6 +438,13 @@ static struct wpabuf * wpa_supplicant_extra_ies(struct wpa_supplicant *wpa_s)
 	enum wps_request_type req_type = WPS_REQ_ENROLLEE_INFO;
 #endif /* CONFIG_WPS */
 
+#ifdef CONFIG_P2P
+	if (wpa_s->p2p_group_interface == P2P_GROUP_INTERFACE_CLIENT)
+		wpa_drv_get_ext_capa(wpa_s, WPA_IF_P2P_CLIENT);
+	else
+#endif /* CONFIG_P2P */
+		wpa_drv_get_ext_capa(wpa_s, WPA_IF_STATION);
+
 	ext_capab_len = wpas_build_ext_capab(wpa_s, ext_capab,
 					     sizeof(ext_capab));
 	if (ext_capab_len > 0 &&
@@ -1867,8 +1874,8 @@ int wpa_supplicant_filter_bssid_match(struct wpa_supplicant *wpa_s,
 }
 
 
-static void filter_scan_res(struct wpa_supplicant *wpa_s,
-			    struct wpa_scan_results *res)
+void filter_scan_res(struct wpa_supplicant *wpa_s,
+		     struct wpa_scan_results *res)
 {
 	size_t i, j;
 
@@ -1901,7 +1908,7 @@ static void filter_scan_res(struct wpa_supplicant *wpa_s,
 #define DEFAULT_NOISE_FLOOR_2GHZ (-89)
 #define DEFAULT_NOISE_FLOOR_5GHZ (-92)
 
-static void scan_snr(struct wpa_scan_res *res)
+void scan_snr(struct wpa_scan_res *res)
 {
 	if (res->flags & WPA_SCAN_NOISE_INVALID) {
 		res->noise = IS_5GHZ(res->freq) ?
@@ -1985,8 +1992,8 @@ static unsigned int max_vht80_rate(int snr)
 }
 
 
-static void scan_est_throughput(struct wpa_supplicant *wpa_s,
-				struct wpa_scan_res *res)
+void scan_est_throughput(struct wpa_supplicant *wpa_s,
+			 struct wpa_scan_res *res)
 {
 	enum local_hw_capab capab = wpa_s->hw_capab;
 	int rate; /* max legacy rate in 500 kb/s units */

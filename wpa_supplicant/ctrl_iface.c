@@ -5069,6 +5069,8 @@ static int p2p_ctrl_connect(struct wpa_supplicant *wpa_s, char *cmd,
 		wps_method = WPS_PIN_DISPLAY;
 	} else if (os_strncmp(pos, "pbc", 3) == 0) {
 		wps_method = WPS_PBC;
+	} else if (os_strstr(pos, "p2ps") != NULL) {
+		wps_method = WPS_P2PS;
 	} else {
 		pin = pos;
 		pos = os_strchr(pin, ' ');
@@ -5077,8 +5079,6 @@ static int p2p_ctrl_connect(struct wpa_supplicant *wpa_s, char *cmd,
 			*pos++ = '\0';
 			if (os_strncmp(pos, "display", 7) == 0)
 				wps_method = WPS_PIN_DISPLAY;
-			else if (os_strncmp(pos, "p2ps", 4) == 0)
-				wps_method = WPS_P2PS;
 		}
 		if (!wps_pin_str_valid(pin)) {
 			os_memcpy(buf, "FAIL-INVALID-PIN\n", 17);
@@ -5805,6 +5805,29 @@ static int p2p_ctrl_group_add(struct wpa_supplicant *wpa_s, char *cmd)
 }
 
 
+static int p2p_ctrl_group_member(struct wpa_supplicant *wpa_s, const char *cmd,
+				 char *buf, size_t buflen)
+{
+	u8 dev_addr[ETH_ALEN];
+	struct wpa_ssid *ssid;
+	int res;
+	const u8 *iaddr;
+
+	ssid = wpa_s->current_ssid;
+	if (!wpa_s->global->p2p || !ssid || ssid->mode != WPAS_MODE_P2P_GO ||
+	    hwaddr_aton(cmd, dev_addr))
+		return -1;
+
+	iaddr = p2p_group_get_client_interface_addr(wpa_s->p2p_group, dev_addr);
+	if (!iaddr)
+		return -1;
+	res = os_snprintf(buf, buflen, MACSTR, MAC2STR(iaddr));
+	if (os_snprintf_error(buflen, res))
+		return -1;
+	return res;
+}
+
+
 static int p2p_ctrl_peer(struct wpa_supplicant *wpa_s, char *cmd,
 			 char *buf, size_t buflen)
 {
@@ -6227,6 +6250,21 @@ static int p2p_ctrl_remove_client(struct wpa_supplicant *wpa_s, const char *cmd)
 
 	wpas_p2p_remove_client(wpa_s, peer, iface_addr);
 	return 0;
+}
+
+
+static int p2p_ctrl_iface_p2p_lo_start(struct wpa_supplicant *wpa_s, char *cmd)
+{
+	int freq = 0, period = 0, interval = 0, count = 0;
+
+	if (sscanf(cmd, "%d %d %d %d", &freq, &period, &interval, &count) != 4)
+	{
+		wpa_printf(MSG_DEBUG,
+			   "CTRL: Invalid P2P LO Start parameter: '%s'", cmd);
+		return -1;
+	}
+
+	return wpas_p2p_lo_start(wpa_s, freq, period, interval, count);
 }
 
 #endif /* CONFIG_P2P */
@@ -8673,6 +8711,9 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
 	} else if (os_strncmp(buf, "P2P_GROUP_ADD ", 14) == 0) {
 		if (p2p_ctrl_group_add(wpa_s, buf + 14))
 			reply_len = -1;
+	} else if (os_strncmp(buf, "P2P_GROUP_MEMBER ", 17) == 0) {
+		reply_len = p2p_ctrl_group_member(wpa_s, buf + 17, reply,
+						  reply_size);
 	} else if (os_strncmp(buf, "P2P_PROV_DISC ", 14) == 0) {
 		if (p2p_ctrl_prov_disc(wpa_s, buf + 14))
 			reply_len = -1;
@@ -8737,6 +8778,12 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
 			reply_len = -1;
 	} else if (os_strncmp(buf, "P2P_REMOVE_CLIENT ", 18) == 0) {
 		if (p2p_ctrl_remove_client(wpa_s, buf + 18) < 0)
+			reply_len = -1;
+	} else if (os_strncmp(buf, "P2P_LO_START ", 13) == 0) {
+		if (p2p_ctrl_iface_p2p_lo_start(wpa_s, buf + 13))
+			reply_len = -1;
+	} else if (os_strcmp(buf, "P2P_LO_STOP") == 0) {
+		if (wpas_p2p_lo_stop(wpa_s))
 			reply_len = -1;
 #endif /* CONFIG_P2P */
 #ifdef CONFIG_WIFI_DISPLAY
@@ -9417,6 +9464,7 @@ static char * wpas_global_ctrl_iface_redir_p2p(struct wpa_global *global,
 		"P2P_LISTEN ",
 		"P2P_GROUP_REMOVE ",
 		"P2P_GROUP_ADD ",
+		"P2P_GROUP_MEMBER ",
 		"P2P_PROV_DISC ",
 		"P2P_SERV_DISC_REQ ",
 		"P2P_SERV_DISC_CANCEL_REQ ",

@@ -1006,7 +1006,7 @@ struct wpa_ssid * wpa_scan_res_match(struct wpa_supplicant *wpa_s,
 			continue;
 		}
 
-		if (ssid->pbss != bss_is_pbss(bss)) {
+		if (ssid->pbss != 2 && ssid->pbss != bss_is_pbss(bss)) {
 			wpa_dbg(wpa_s, MSG_DEBUG, "   skip - PBSS mismatch (ssid %d bss %d)",
 				ssid->pbss, bss_is_pbss(bss));
 			continue;
@@ -2210,7 +2210,7 @@ static void wpa_supplicant_event_assoc(struct wpa_supplicant *wpa_s,
 				       union wpa_event_data *data)
 {
 	u8 bssid[ETH_ALEN];
-	int ft_completed;
+	int ft_completed, already_authorized;
 	int new_bss = 0;
 
 #ifdef CONFIG_AP
@@ -2290,6 +2290,8 @@ static void wpa_supplicant_event_assoc(struct wpa_supplicant *wpa_s,
 	if (wpa_s->l2)
 		l2_packet_notify_auth_start(wpa_s->l2);
 
+	already_authorized = data && data->assoc_info.authorized;
+
 	/*
 	 * Set portEnabled first to FALSE in order to get EAP state machine out
 	 * of the SUCCESS state and eapSuccess cleared. Without this, EAPOL PAE
@@ -2298,11 +2300,12 @@ static void wpa_supplicant_event_assoc(struct wpa_supplicant *wpa_s,
 	 * AUTHENTICATED without ever giving chance to EAP state machine to
 	 * reset the state.
 	 */
-	if (!ft_completed) {
+	if (!ft_completed && !already_authorized) {
 		eapol_sm_notify_portEnabled(wpa_s->eapol, FALSE);
 		eapol_sm_notify_portValid(wpa_s->eapol, FALSE);
 	}
-	if (wpa_key_mgmt_wpa_psk(wpa_s->key_mgmt) || ft_completed)
+	if (wpa_key_mgmt_wpa_psk(wpa_s->key_mgmt) || ft_completed ||
+	    already_authorized)
 		eapol_sm_notify_eap_success(wpa_s->eapol, FALSE);
 	/* 802.1X::portControl = Auto */
 	eapol_sm_notify_portEnabled(wpa_s->eapol, TRUE);
@@ -4026,6 +4029,14 @@ void wpa_supplicant_event(void *ctx, enum wpa_event_type event,
 		hostapd_acs_channel_selected(wpa_s->ap_iface->bss[0],
 					     &data->acs_selected_channels);
 #endif /* CONFIG_ACS */
+		break;
+	case EVENT_P2P_LO_STOP:
+#ifdef CONFIG_P2P
+		wpa_s->p2p_lo_started = 0;
+		wpa_msg(wpa_s, MSG_INFO, P2P_EVENT_LISTEN_OFFLOAD_STOP
+			P2P_LISTEN_OFFLOAD_STOP_REASON "reason=%d",
+			data->p2p_lo_stop.reason_code);
+#endif /* CONFIG_P2P */
 		break;
 	default:
 		wpa_msg(wpa_s, MSG_INFO, "Unknown event %d", event);

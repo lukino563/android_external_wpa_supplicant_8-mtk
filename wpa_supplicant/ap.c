@@ -214,6 +214,13 @@ static int wpa_supplicant_conf_ap(struct wpa_supplicant *wpa_s,
 	if (wpa_supplicant_conf_ap_ht(wpa_s, ssid, conf))
 		return -1;
 
+	if (ssid->pbss > 1) {
+		wpa_printf(MSG_ERROR, "Invalid pbss value(%d) for AP mode",
+			   ssid->pbss);
+		return -1;
+	}
+	bss->pbss = ssid->pbss;
+
 #ifdef CONFIG_ACS
 	if (ssid->acs) {
 		/* Setting channel to 0 in order to enable ACS */
@@ -453,8 +460,6 @@ no_wps:
 			wpabuf_dup(wpa_s->conf->ap_vendor_elements);
 	}
 
-	bss->pbss = ssid->pbss;
-
 	return 0;
 }
 
@@ -648,6 +653,11 @@ int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 
 	if (ieee80211_is_dfs(params.freq.freq))
 		params.freq.freq = 0; /* set channel after CAC */
+
+	if (params.p2p)
+		wpa_drv_get_ext_capa(wpa_s, WPA_IF_P2P_GO);
+	else
+		wpa_drv_get_ext_capa(wpa_s, WPA_IF_AP_BSS);
 
 	if (wpa_drv_associate(wpa_s, &params) < 0) {
 		wpa_msg(wpa_s, MSG_INFO, "Failed to start AP functionality");

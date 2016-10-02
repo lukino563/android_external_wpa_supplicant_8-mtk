@@ -2286,6 +2286,11 @@ static void wpas_start_assoc_cb(struct wpa_radio_work *work, int deinit)
 	 * element in all cases, it is justifiable to skip it to avoid
 	 * interoperability issues.
 	 */
+	if (ssid->p2p_group)
+		wpa_drv_get_ext_capa(wpa_s, WPA_IF_P2P_CLIENT);
+	else
+		wpa_drv_get_ext_capa(wpa_s, WPA_IF_STATION);
+
 	if (!bss || wpa_bss_get_ie(bss, WLAN_EID_EXT_CAPAB)) {
 		u8 ext_capab[18];
 		int ext_capab_len;
@@ -2414,7 +2419,7 @@ static void wpas_start_assoc_cb(struct wpa_radio_work *work, int deinit)
 	} else {
 		params.ssid = ssid->ssid;
 		params.ssid_len = ssid->ssid_len;
-		params.pbss = ssid->pbss;
+		params.pbss = (ssid->pbss != 2) ? ssid->pbss : 0;
 	}
 
 	if (ssid->mode == WPAS_MODE_IBSS && ssid->bssid_set &&
@@ -5679,7 +5684,11 @@ int wpa_supplicant_ctrl_iface_ctrl_rsp_handle(struct wpa_supplicant *wpa_s,
 		eap->identity = (u8 *) os_strdup(value);
 		eap->identity_len = os_strlen(value);
 		eap->pending_req_identity = 0;
-		if (ssid == wpa_s->current_ssid)
+		if (ssid == wpa_s->current_ssid
+#ifndef CONFIG_EAP_PROXY
+			&& wpa_s->wpa_state < WPA_ASSOCIATING
+#endif
+		)
 			wpa_s->reassociate = 1;
 		break;
 	case WPA_CTRL_REQ_EAP_PASSWORD:

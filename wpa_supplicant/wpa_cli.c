@@ -2175,6 +2175,13 @@ static int wpa_cli_cmd_p2p_group_add(struct wpa_ctrl *ctrl, int argc,
 }
 
 
+static int wpa_cli_cmd_p2p_group_member(struct wpa_ctrl *ctrl, int argc,
+					char *argv[])
+{
+	return wpa_cli_cmd(ctrl, "P2P_GROUP_MEMBER", 1, argc, argv);
+}
+
+
 static int wpa_cli_cmd_p2p_prov_disc(struct wpa_ctrl *ctrl, int argc,
 				     char *argv[])
 {
@@ -2885,6 +2892,20 @@ static int wpa_cli_cmd_get_pref_freq_list(struct wpa_ctrl *ctrl, int argc,
 }
 
 
+static int wpa_cli_cmd_p2p_lo_start(struct wpa_ctrl *ctrl, int argc,
+				    char *argv[])
+{
+	return wpa_cli_cmd(ctrl, "P2P_LO_START", 4, argc, argv);
+}
+
+
+static int wpa_cli_cmd_p2p_lo_stop(struct wpa_ctrl *ctrl, int argc,
+				   char *argv[])
+{
+	return wpa_cli_cmd(ctrl, "P2P_LO_STOP", 0, argc, argv);
+}
+
+
 enum wpa_cli_cmd_flags {
 	cli_cmd_flag_none		= 0x00,
 	cli_cmd_flag_sensitive		= 0x01
@@ -3253,6 +3274,9 @@ static const struct wpa_cli_cmd wpa_cli_commands[] = {
 	  "<ifname> = remove P2P group interface (terminate group if GO)" },
 	{ "p2p_group_add", wpa_cli_cmd_p2p_group_add, NULL, cli_cmd_flag_none,
 	  "[ht40] = add a new P2P group (local end as GO)" },
+	{ "p2p_group_member", wpa_cli_cmd_p2p_group_member, NULL,
+	  cli_cmd_flag_none,
+	  "<dev_addr> = Get peer interface address on local GO using peer Device Address" },
 	{ "p2p_prov_disc", wpa_cli_cmd_p2p_prov_disc,
 	  wpa_cli_complete_p2p_peer, cli_cmd_flag_none,
 	  "<addr> <method> = request provisioning discovery" },
@@ -3468,6 +3492,12 @@ static const struct wpa_cli_cmd wpa_cli_commands[] = {
 	{ "get_pref_freq_list", wpa_cli_cmd_get_pref_freq_list, NULL,
 	  cli_cmd_flag_none,
 	  "<interface type> = retrieve preferred freq list for the specified interface type" },
+	{ "p2p_lo_start", wpa_cli_cmd_p2p_lo_start, NULL,
+	  cli_cmd_flag_none,
+	  "<freq> <period> <interval> <count> = start P2P listen offload" },
+	{ "p2p_lo_stop", wpa_cli_cmd_p2p_lo_stop, NULL,
+	  cli_cmd_flag_none,
+	  "= stop P2P listen offload" },
 	{ NULL, NULL, NULL, cli_cmd_flag_none, NULL }
 };
 
